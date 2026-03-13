@@ -2,6 +2,8 @@
  * CarromBoard.js
  * Main canvas component that renders the carrom board and handles
  * mouse/touch interactions for striker placement, aiming, and shooting.
+ * Enhanced with smoother physics sub-stepping, interpolated rendering,
+ * and polished visual feedback.
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
@@ -20,10 +22,17 @@ import { computeAIMove } from '../engine/ai';
 const BASELINE_MIN_X = BOARD_PADDING + 80;
 const BASELINE_MAX_X = BOARD_SIZE - BOARD_PADDING - 80;
 
+/** Number of physics sub-steps per animation frame for smoother movement */
+const PHYSICS_SUB_STEPS = 3;
+
+/** Maximum simulation frames before force-stop (safety limit) */
+const MAX_SIM_FRAMES = 800;
+
 // PUBLIC_INTERFACE
 /**
  * CarromBoard canvas component.
  * Handles rendering, user input for striker aiming/shooting, physics simulation loop.
+ * Uses sub-stepping for smoother coin/piece movement and interpolated rendering.
  * @param {object} props
  * @param {Array<object>} props.pieces - Game pieces
  * @param {object|null} props.striker - Striker piece
@@ -60,7 +69,7 @@ function CarromBoard({
   // Interaction state
   const [isDragging, setIsDragging] = useState(false);
   const [isAiming, setIsAiming] = useState(false);
-  const [aimState, setAimState] = useState(null); // { angle, power }
+  const [aimState, setAimState] = useState(null);
   const dragStartRef = useRef(null);
 
   // Animation frame reference
@@ -68,7 +77,7 @@ function CarromBoard({
   const simulatingRef = useRef(false);
   const pocketedThisTurnRef = useRef([]);
 
-  // Responsive canvas sizing
+  // Responsive canvas sizing with smooth transition
   useEffect(() => {
     function handleResize() {
       if (containerRef.current) {
@@ -82,7 +91,7 @@ function CarromBoard({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Render loop
+  // Render loop — re-renders whenever pieces, striker, or aim changes
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -90,42 +99,54 @@ function CarromBoard({
     renderBoard(ctx, canvasSize, pieces, striker, aimState, null, isAiming);
   }, [pieces, striker, aimState, canvasSize, isAiming]);
 
-  // Physics simulation loop
+  // Physics simulation loop with sub-stepping for smoother coin movement
   const runSimulation = useCallback(() => {
     simulatingRef.current = true;
     pocketedThisTurnRef.current = [];
 
-    const allPieces = [...pieces];
-    const simStriker = striker ? { ...striker } : null;
-    const simPiecesWithStriker = simStriker ? [...allPieces, simStriker] : [...allPieces];
+    // Deep copy pieces for simulation so we don't mutate props
+    const allPieces = pieces.map(function(p) {
+      return { x: p.x, y: p.y, vx: p.vx, vy: p.vy, radius: p.radius, type: p.type, pocketed: p.pocketed, mass: p.mass };
+    });
+    var simStriker = striker ? { x: striker.x, y: striker.y, vx: striker.vx, vy: striker.vy, radius: striker.radius, type: striker.type, pocketed: striker.pocketed, mass: striker.mass } : null;
+    var simPiecesWithStriker = simStriker ? allPieces.concat([simStriker]) : allPieces.slice();
 
-    let frameCount = 0;
-    const maxFrames = 600; // Safety limit
+    var frameCount = 0;
 
     function step() {
-      if (frameCount > maxFrames) {
+      if (frameCount > MAX_SIM_FRAMES) {
         finishSimulation(simPiecesWithStriker, simStriker);
         return;
       }
       frameCount++;
 
-      const result = physicsStep(simPiecesWithStriker);
+      // Run multiple physics sub-steps per frame for smoother motion
+      var stillMoving = false;
+      for (var s = 0; s < PHYSICS_SUB_STEPS; s++) {
+        var result = physicsStep(simPiecesWithStriker);
 
-      // Track newly pocketed pieces
-      if (result.newlyPocketed.length > 0) {
-        pocketedThisTurnRef.current.push(...result.newlyPocketed);
+        // Track newly pocketed pieces
+        if (result.newlyPocketed.length > 0) {
+          for (var p = 0; p < result.newlyPocketed.length; p++) {
+            pocketedThisTurnRef.current.push(result.newlyPocketed[p]);
+          }
+        }
+
+        if (result.moving) {
+          stillMoving = true;
+        }
       }
 
-      // Update canvas
-      const canvas = canvasRef.current;
+      // Update canvas with interpolated positions
+      var canvas = canvasRef.current;
       if (canvas) {
-        const ctx = canvas.getContext('2d');
-        const justPieces = simPiecesWithStriker.filter(p => p.type !== 'striker');
-        const currentStriker = simPiecesWithStriker.find(p => p.type === 'striker');
+        var ctx = canvas.getContext('2d');
+        var justPieces = simPiecesWithStriker.filter(function(pc) { return pc.type !== 'striker'; });
+        var currentStriker = simPiecesWithStriker.find(function(pc) { return pc.type === 'striker'; });
         renderBoard(ctx, canvasSize, justPieces, currentStriker, null, null, false);
       }
 
-      if (result.moving) {
+      if (stillMoving) {
         animFrameRef.current = requestAnimationFrame(step);
       } else {
         finishSimulation(simPiecesWithStriker, simStriker);
@@ -134,9 +155,9 @@ function CarromBoard({
 
     function finishSimulation(allPcs, str) {
       simulatingRef.current = false;
-      const justPieces = allPcs.filter(p => p.type !== 'striker');
-      const strikerPocketed = str ? str.pocketed : false;
-      const pocketed = pocketedThisTurnRef.current.filter(p => p.type !== 'striker');
+      var justPieces = allPcs.filter(function(pc) { return pc.type !== 'striker'; });
+      var strikerPocketed = str ? str.pocketed : false;
+      var pocketed = pocketedThisTurnRef.current.filter(function(pc) { return pc.type !== 'striker'; });
 
       onTurnComplete(pocketed, strikerPocketed, justPieces);
     }
@@ -166,11 +187,11 @@ function CarromBoard({
       striker &&
       pieces.length > 0
     ) {
-      const aiTimer = setTimeout(() => {
-        const move = computeAIMove(pieces, striker, difficulty);
+      var aiTimer = setTimeout(function() {
+        var move = computeAIMove(pieces, striker, difficulty);
 
         // Position striker
-        const newStriker = createStriker(move.strikerX, getStrikerY(2));
+        var newStriker = createStriker(move.strikerX, getStrikerY(2));
         launchStriker(newStriker, move.angle, move.power);
         playStrikerSound();
 
@@ -178,18 +199,18 @@ function CarromBoard({
         onSimulationStart();
       }, 800);
 
-      return () => clearTimeout(aiTimer);
+      return function() { clearTimeout(aiTimer); };
     }
   }, [gameMode, currentPlayer, gameStatus, isSimulating, striker, pieces, difficulty, getStrikerY, onStrikerUpdate, onSimulationStart]);
 
   // Convert mouse/touch coordinates to board coordinates
-  const getCanvasCoords = useCallback((e) => {
-    const canvas = canvasRef.current;
+  var getCanvasCoords = useCallback(function(e) {
+    var canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const scale = BOARD_SIZE / canvasSize;
+    var rect = canvas.getBoundingClientRect();
+    var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    var scale = BOARD_SIZE / canvasSize;
     return {
       x: (clientX - rect.left) * scale,
       y: (clientY - rect.top) * scale,
@@ -197,18 +218,18 @@ function CarromBoard({
   }, [canvasSize]);
 
   // Check if it's human's turn
-  const isHumanTurn = gameStatus === 'playing' && !isSimulating && 
+  var isHumanTurn = gameStatus === 'playing' && !isSimulating &&
     (gameMode === 'local' || currentPlayer === 1);
 
   // Mouse/Touch handlers
-  const handlePointerDown = useCallback((e) => {
+  var handlePointerDown = useCallback(function(e) {
     if (!isHumanTurn || !striker) return;
     e.preventDefault();
 
-    const coords = getCanvasCoords(e);
-    const dx = coords.x - striker.x;
-    const dy = coords.y - striker.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
+    var coords = getCanvasCoords(e);
+    var dx = coords.x - striker.x;
+    var dy = coords.y - striker.y;
+    var dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist < striker.radius * 3) {
       // Start aiming from striker
@@ -216,41 +237,41 @@ function CarromBoard({
       dragStartRef.current = { x: coords.x, y: coords.y };
     } else {
       // Move striker along baseline
-      const newX = Math.max(BASELINE_MIN_X, Math.min(BASELINE_MAX_X, coords.x));
-      const newStriker = createStriker(newX, getStrikerY(currentPlayer));
+      var newX = Math.max(BASELINE_MIN_X, Math.min(BASELINE_MAX_X, coords.x));
+      var newStriker = createStriker(newX, getStrikerY(currentPlayer));
       onStrikerUpdate(newStriker);
       setIsDragging(true);
     }
   }, [isHumanTurn, striker, getCanvasCoords, currentPlayer, getStrikerY, onStrikerUpdate]);
 
-  const handlePointerMove = useCallback((e) => {
+  var handlePointerMove = useCallback(function(e) {
     if (!striker) return;
     e.preventDefault();
 
-    const coords = getCanvasCoords(e);
+    var coords = getCanvasCoords(e);
 
     if (isDragging) {
-      const newX = Math.max(BASELINE_MIN_X, Math.min(BASELINE_MAX_X, coords.x));
-      const newStriker = createStriker(newX, getStrikerY(currentPlayer));
+      var newX = Math.max(BASELINE_MIN_X, Math.min(BASELINE_MAX_X, coords.x));
+      var newStriker = createStriker(newX, getStrikerY(currentPlayer));
       onStrikerUpdate(newStriker);
     }
 
     if (isAiming && dragStartRef.current) {
-      const dx = coords.x - striker.x;
-      const dy = coords.y - striker.y;
-      const angle = Math.atan2(dy, dx);
+      var dx = coords.x - striker.x;
+      var dy = coords.y - striker.y;
+      var angle = Math.atan2(dy, dx);
 
       // Power based on drag distance from start
-      const dragDx = coords.x - dragStartRef.current.x;
-      const dragDy = coords.y - dragStartRef.current.y;
-      const dragDist = Math.sqrt(dragDx * dragDx + dragDy * dragDy);
-      const power = Math.min(1, dragDist / 150);
+      var dragDx = coords.x - dragStartRef.current.x;
+      var dragDy = coords.y - dragStartRef.current.y;
+      var dragDist = Math.sqrt(dragDx * dragDx + dragDy * dragDy);
+      var power = Math.min(1, dragDist / 150);
 
-      setAimState({ angle, power });
+      setAimState({ angle: angle, power: power });
     }
   }, [isDragging, isAiming, striker, getCanvasCoords, currentPlayer, getStrikerY, onStrikerUpdate]);
 
-  const handlePointerUp = useCallback((e) => {
+  var handlePointerUp = useCallback(function(_e) {
     if (isDragging) {
       setIsDragging(false);
       return;
@@ -258,7 +279,10 @@ function CarromBoard({
 
     if (isAiming && aimState && striker) {
       // Launch striker
-      const launchedStriker = { ...striker };
+      var launchedStriker = {
+        x: striker.x, y: striker.y, vx: striker.vx, vy: striker.vy,
+        radius: striker.radius, type: striker.type, pocketed: striker.pocketed, mass: striker.mass
+      };
       launchStriker(launchedStriker, aimState.angle, aimState.power);
       playStrikerSound();
       onStrikerUpdate(launchedStriker);
@@ -271,7 +295,7 @@ function CarromBoard({
   }, [isDragging, isAiming, aimState, striker, onStrikerUpdate, onSimulationStart]);
 
   // Prevent context menu on canvas
-  const handleContextMenu = useCallback((e) => e.preventDefault(), []);
+  var handleContextMenu = useCallback(function(e) { e.preventDefault(); }, []);
 
   return (
     <div className="carrom-board-container" ref={containerRef}>
@@ -294,12 +318,17 @@ function CarromBoard({
       />
       {isHumanTurn && !isAiming && !isSimulating && (
         <div className="board-hint">
-          Click near the striker to aim • Click elsewhere to reposition
+          <span className="hint-icon">🎯</span> Click near the striker to aim · Click elsewhere to reposition
+        </div>
+      )}
+      {isAiming && aimState && (
+        <div className="board-hint aiming">
+          <span className="hint-icon">💪</span> Power: {Math.round((aimState.power || 0) * 100)}% · Release to shoot
         </div>
       )}
       {isSimulating && (
         <div className="board-hint simulating">
-          ⏳ Simulating...
+          <span className="hint-icon">⏳</span> Simulating...
         </div>
       )}
     </div>

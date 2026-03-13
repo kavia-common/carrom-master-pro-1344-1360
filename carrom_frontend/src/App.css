@@ -293,6 +293,12 @@ body {
   margin: 0 auto;
   width: 100%;
   align-items: flex-start;
+  animation: layoutFadeIn 0.4s ease;
+}
+
+@keyframes layoutFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .game-board-area {
@@ -312,37 +318,80 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
+  position: relative;
 }
 
 .carrom-canvas {
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.12),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
   cursor: crosshair;
   touch-action: none;
   max-width: 100%;
+  transition: box-shadow 0.3s ease;
+  image-rendering: auto;
+  /* Smooth canvas rendering */
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  will-change: contents;
+}
+
+.carrom-canvas:hover {
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.22),
+    0 4px 12px rgba(0, 0, 0, 0.15),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .board-hint {
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   color: var(--text-secondary);
   text-align: center;
-  padding: 6px 12px;
+  padding: 8px 16px;
   background: var(--surface);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
+  border-radius: 20px;
+  box-shadow: var(--shadow-md);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  animation: hintFadeIn 0.3s ease;
+  transition: all 0.3s ease;
+  border: 1px solid var(--border);
+  line-height: 1.4;
+}
+
+.hint-icon {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.board-hint.aiming {
+  color: var(--primary);
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.2);
 }
 
 .board-hint.simulating {
   color: var(--primary);
   font-weight: 600;
-  animation: pulse 1s infinite;
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.2);
+  animation: hintFadeIn 0.3s ease, pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.98); }
+}
+
+@keyframes hintFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* === Score Panel === */
@@ -351,6 +400,11 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   padding: 20px;
+  transition: box-shadow 0.3s ease;
+}
+
+.score-panel:hover {
+  box-shadow: var(--shadow-lg);
 }
 
 .panel-title {
@@ -430,6 +484,11 @@ body {
   color: var(--primary);
   text-align: center;
   margin-bottom: 4px;
+  transition: transform 0.2s ease, color 0.3s ease;
+}
+
+.player-card.active .player-score {
+  transform: scale(1.05);
 }
 
 .pocketed-info {
@@ -465,6 +524,8 @@ body {
   border-radius: var(--radius-sm);
   border: 1px solid rgba(59, 130, 246, 0.15);
   line-height: 1.4;
+  animation: hintFadeIn 0.3s ease;
+  transition: all 0.3s ease;
 }
 
 /* === Game Over Overlay === */
