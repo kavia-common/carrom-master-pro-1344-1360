@@ -1,8 +1,16 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders carrom master pro title', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  const titleElement = screen.getByText(/Carrom Master Pro/i);
+  expect(titleElement).toBeInTheDocument();
+});
+
+test('renders game mode buttons on menu', () => {
+  render(<App />);
+  const localBtn = screen.getByText(/Local Multiplayer/i);
+  const aiBtn = screen.getByText(/Play vs AI/i);
+  expect(localBtn).toBeInTheDocument();
+  expect(aiBtn).toBeInTheDocument();
 });
